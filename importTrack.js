@@ -11,17 +11,22 @@ var importTrackStartsMark=0;
 var currentImportPlayPosition;
 var currentCategory;
 
-function importTrack(category = '') {
-  closeMenu();
-  importDialog.style.display = "block";
-  clearImportPlayer();  
-  returnCategoryList(document.getElementById("importCategoryList"));//WP 11/22
-  currentCategory = category;
-  if (goLiveState == true)//032423 WP ==
-  {
-	  var vidstream = document.getElementById("stream");
-	  vidstream.muted = true;
-  }
+function importTrack(file) {
+  if (!file) return;
+  
+  // Clear any existing track
+  clearImportPlayer();
+  
+  // Load the file into the import player
+  importPlayer.loadBlob(file);
+  
+  // Set the track name
+  importTrackName = file.name;
+  importTrackPath = file;
+  document.getElementById("importCart").value = importTrackName;
+  
+  // Show the import dialog
+  document.getElementById("importDialog").style.display = "block";
 }
 
 closediv.addEventListener('click', function (event) {
@@ -34,28 +39,73 @@ closediv.addEventListener('click', function (event) {
   }
 });
 
-importPlayer = WaveformPlaylist.init({
-  samplesPerPixel: 5000,
-  waveHeight: 200, //document.getElementById("newImportTrack").clientHeight + 2,
-  container: document.getElementById("newImportTrack"),
-  state: 'cursor',
-  colors: {
-    waveOutlineColor: 'black',
-    timeColor: 'red',
-    fadeColor: 'black'
-  },
-  timescale: true,
-  controls: {
-    show: false, //whether or not to include the track controls
-    width: 200 //width of controls in pixels
-  },
-  seekStyle : 'line',
-  zoomLevels: [500, 1000, 3000, 5000],
-  waveWidth: document.getElementById("newImportTrack").clientWidth  
+importPlayer = createWaveSurfer("newImportTrack", {
+  height: 200,
+  waveColor: 'black',
+  progressColor: '#4353FF',
+  cursorColor: 'red',
+  minPxPerSec: 100,
+  scrollParent: true,
+  normalize: true
 });
 
+// Add regions plugin for marking intro/outro points
+const wsRegions = importPlayer.registerPlugin(WaveSurfer.regions.create());
 
-var editWaveFormEvent = importPlayer.getEventEmitter();
+// Add event handlers
+importPlayer.on('ready', function() {
+  const duration = importPlayer.getDuration();
+  
+  // Reset markers
+  importIntroMark = 0;
+  importOutroMark = 0;
+  importNextStartMark = 0;
+  
+  // Update display
+  document.getElementById("importIntroBtn").innerHTML = getHMS(importIntroMark) + "<br>" + "Intro End";
+  document.getElementById("importOutroStartsBtn").innerHTML = getHMS(importOutroMark) + "<br>" + "Outro Starts";
+  document.getElementById("importNextStartBtn").innerHTML = getHMS(importNextStartMark) + "<br>" + "Next Start";
+});
+
+// Add compatibility layer for editWaveFormEvent
+editWaveFormEvent = {
+  on: function(event, callback) {
+    importPlayer.on(event, callback);
+  },
+  emit: function(event, ...args) {
+    if (event === 'select') {
+      const [time, duration, label] = args;
+      importPlayer.seekTo(time / importPlayer.getDuration());
+    } else if (event === 'addmark') {
+      const [time, markType] = args;
+      
+      // Clear existing regions of this type
+      Object.values(wsRegions.getRegions()).forEach(region => {
+        if (region.data && region.data.type === markType) {
+          region.remove();
+        }
+      });
+      
+      // Add new region
+      wsRegions.addRegion({
+        start: time,
+        end: time + 0.1,
+        color: markType === 'intro' ? 'rgba(0, 255, 0, 0.3)' : 
+               markType === 'outro' ? 'rgba(255, 0, 0, 0.3)' : 
+               'rgba(0, 0, 255, 0.3)',
+        data: {
+          type: markType
+        }
+      });
+    } else if (event === 'newtrack') {
+      const [blob, name, width] = args;
+      importPlayer.loadBlob(blob);
+      importTrackName = name || blob.name;
+      importTrackPath = blob;
+      document.getElementById("importCart").value = importTrackName;
+    }
+  }
+};
 
 function selectTrack(){
 	clearImportPlayer();
@@ -316,4 +366,97 @@ editWaveFormEvent.on("loaded", function(duration) {
 	}	
 	});
 
+
+// Function to set intro mark
+function setIntroMark() {
+  if (!importPlayer) return;
+  
+  // Get current position
+  importIntroMark = importPlayer.getCurrentTime();
+  
+  // Update button text
+  document.getElementById("importIntroBtn").innerHTML = getHMS(importIntroMark) + "<br>" + "Intro End";
+  
+  // Add or update region
+  const regions = importPlayer.regions.getRegions();
+  
+  // Remove existing intro markers
+  Object.values(regions).forEach(region => {
+    if (region.data && region.data.type === 'intro') {
+      region.remove();
+    }
+  });
+  
+  // Add new marker
+  importPlayer.regions.addRegion({
+    start: importIntroMark,
+    end: importIntroMark + 0.1,
+    color: 'rgba(0, 255, 0, 0.5)',
+    data: {
+      type: 'intro'
+    }
+  });
+}
+
+// Function to set outro mark
+function setOutroMark() {
+  if (!importPlayer) return;
+  
+  // Get current position
+  importOutroMark = importPlayer.getCurrentTime();
+  
+  // Update button text
+  document.getElementById("importOutroStartsBtn").innerHTML = getHMS(importOutroMark) + "<br>" + "Outro Starts";
+  
+  // Add or update region
+  const regions = importPlayer.regions.getRegions();
+  
+  // Remove existing outro markers
+  Object.values(regions).forEach(region => {
+    if (region.data && region.data.type === 'outro') {
+      region.remove();
+    }
+  });
+  
+  // Add new marker
+  importPlayer.regions.addRegion({
+    start: importOutroMark,
+    end: importOutroMark + 0.1,
+    color: 'rgba(255, 0, 0, 0.5)',
+    data: {
+      type: 'outro'
+    }
+  });
+}
+
+// Function to set next start mark
+function setNextStartMark() {
+  if (!importPlayer) return;
+  
+  // Get current position
+  importNextStartMark = importPlayer.getCurrentTime();
+  
+  // Update button text
+  document.getElementById("importNextStartBtn").innerHTML = getHMS(importNextStartMark) + "<br>" + "Next Start";
+  
+  // Add or update region
+  const regions = importPlayer.regions.getRegions();
+  
+  // Remove existing next start markers
+  Object.values(regions).forEach(region => {
+    if (region.data && region.data.type === 'nextstart') {
+      region.remove();
+    }
+  });
+  
+  // Add new marker
+  importPlayer.regions.addRegion({
+    start: importNextStartMark,
+    end: importNextStartMark + 0.1,
+    color: 'rgba(0, 0, 255, 0.5)',
+    data: {
+      type: 'nextstart'
+    }
+  });
+}
 

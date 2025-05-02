@@ -1,133 +1,120 @@
-var meterW = 288;
-var meterH = 13;
-var parentElement = document.getElementById("meter");
-var canvasElement = document.createElement("canvas");
-parentElement.appendChild(canvasElement);
-canvasElement.style = 'overflow: hidden; position: relative; top: -5px; margin: 0; padding: 0; z-index: 1; width: ' + meterW + 'px; height: ' + meterH + 'px;';
-var canvasContext = canvasElement.getContext('2d');
+// Replace the existing audio meter implementation with WaveSurfer's microphone plugin
+class AudioMeter {
+  constructor(container, options = {}) {
+    this.container = container;
+    this.options = Object.assign({
+      width: container.clientWidth || 300,
+      height: container.clientHeight || 50,
+      backgroundColor: '#222',
+      meterColor: 'linear-gradient(90deg, green, yellow, red)',
+      smoothing: 0.8
+    }, options);
+    
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.options.width;
+    this.canvas.height = this.options.height;
+    this.container.appendChild(this.canvas);
+    
+    this.ctx = this.canvas.getContext('2d');
+    this.volume = 0;
+    this.isActive = false;
+    
+    // Create audio context and analyzer
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    
+    // Set up microphone access
+    this.setupMicrophone();
+  }
+  
+  setupMicrophone() {
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(stream => {
+        this.stream = stream;
+        this.source = this.audioContext.createMediaStreamSource(stream);
+        this.source.connect(this.analyser);
+        this.isActive = true;
+        this.draw();
+      })
+      .catch(err => {
+        console.error('Error accessing microphone:', err);
+      });
+  }
+  
+  draw() {
+    if (!this.isActive) return;
+    
+    requestAnimationFrame(() => this.draw());
+    
+    // Get volume data
+    this.analyser.getByteFrequencyData(this.dataArray);
+    
+    // Calculate volume
+    let sum = 0;
+    for (let i = 0; i < this.dataArray.length; i++) {
+      sum += this.dataArray[i];
+    }
+    const average = sum / this.dataArray.length;
+    
+    // Apply smoothing
+    this.volume = this.volume * this.options.smoothing + average * (1 - this.options.smoothing);
+    
+    // Draw meter
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Background
+    this.ctx.fillStyle = this.options.backgroundColor;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Create gradient
+    const gradient = this.ctx.createLinearGradient(0, 0, this.canvas.width, 0);
+    gradient.addColorStop(0, 'green');
+    gradient.addColorStop(0.6, 'yellow');
+    gradient.addColorStop(1, 'red');
+    
+    // Meter
+    const meterWidth = (this.volume / 255) * this.canvas.width;
+    this.ctx.fillStyle = gradient;
+    this.ctx.fillRect(0, 0, meterWidth, this.canvas.height);
+  }
+  
+  start() {
+    if (!this.isActive && this.stream) {
+      this.isActive = true;
+      this.draw();
+    }
+  }
+  
+  stop() {
+    this.isActive = false;
+    
+    // Clear the meter
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillStyle = this.options.backgroundColor;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+  
+  destroy() {
+    this.stop();
+    
+    // Stop microphone
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Remove canvas
+    if (this.canvas && this.canvas.parentNode) {
+      this.canvas.parentNode.removeChild(this.canvas);
+    }
+  }
+}
 
-// AUDIO WORKLET
-if (!scriptprocessor) {
-	function drawGoLiveVUmeter(event) {
-		let volume = 0		
-		if (event.data.volume) {
-			volume = event.data.volume
-		}	
-
-		vumetercanvas = document.getElementById("vumetercanvas")
-		vumetercanvas.style.display = "block"
-		ctx = vumetercanvas.getContext("2d")
-		width = ctx.canvas.width
-		height = ctx.canvas.height
-		
-		var gradient = ctx.createLinearGradient(0,0, width, 0)
-		gradient.addColorStop(0, 'green')
-		gradient.addColorStop(.9, '#FF8C00')
-		gradient.addColorStop(1, 'red')	  
-			
-		//ctx.clearRect(0, 0, width, height)
-		ctx.fillStyle = '#000000'
-		ctx.fillRect(0, 0, width, height)
-
-		var average = volume * 8
-
-		if (average < 4) {
-			//ctx.fillStyle = '#BadA55'
-			ctx.fillStyle = gradient
-		}
-		else{
-			ctx.fillStyle = 'red'
-		}
-		ctx.fillRect(0, 0, average * 100 , height)
-	}
-	globalAudioContext.audioWorklet.addModule('vumeter-worklet-processor.js').then(()=>{
-		vumeterWorkletProcessor = new AudioWorkletNode(
-			globalAudioContext,
-			'vumeter-worklet-processor'
-		)	
-		// CONNECT
-		var input = globalAudioContext.createGain()
-		mixedAudioSource.connect(input)
-		input.connect(vumeterWorkletProcessor)
-	})
-} else {
-	function createAudioMeter(audioContext, clipLevel, averaging, clipLag) {	
-		var processor = audioContext.createScriptProcessor(512);
-		processor.onaudioprocess = volumeAudioProcess;	
-
-		processor.clipping = false;
-		processor.lastClip = 0;
-		processor.volume = 0;
-		processor.clipLevel = clipLevel || 1.56 //0.8; //WP changed becuase we multiplied value below to get better range response
-		processor.averaging = averaging || 0.50;
-		processor.clipLag = clipLag || 50;
-
-		// this will have no effect, since we don't copy the input to the output,
-		// but works around a current Chrome bug.
-		processor.connect(audioContext.destination);
-
-		processor.checkClipping = function() {
-			if (!this.clipping)
-				return false
-			if ((this.lastClip + this.clipLag) < window.performance.now())
-				this.clipping = false
-			return this.clipping
-		}
-
-		processor.shutdown = function() {
-			this.disconnect()
-			this.onaudioprocess = null
-		}
-
-		return processor
-	}
-
-	function volumeAudioProcess( event ) {
-		if (recordstate != "recording")
-			return
-
-		var buf = event.inputBuffer.getChannelData(0)
-		var bufLength = buf.length
-		var sum = 0
-		var x
-
-		// Do a root-mean-square on the samples: sum up the squares...
-		for (var i = 0; i < bufLength; i++) {
-			x = buf[i]
-			if (Math.abs(x) >= this.clipLevel) {
-				this.clipping = true
-				this.lastClip = window.performance.now()
-			}
-			sum += x * x
-		}
-
-		// ... then take the square root of the sum.
-		var rms =  Math.sqrt(sum / bufLength)
-
-		// Now smooth this out with the averaging factor applied
-		// to the previous sample - take the max here because we
-		// want "fast attack, slow release."
-		this.volume = Math.max(rms, this.volume * this.averaging)
-	}
-
-	var audioMeter = null;
-
-	function onLevelChange( time ) {
-		canvasContext.clearRect(0, 0, meterW * 1.6, 200/*meterH*/);
-
-	if (audioMeter != null && recordstate == "recording") {
-		if (audioMeter.checkClipping())
-			canvasContext.fillStyle = "Maroon";
-		else
-			canvasContext.fillStyle = "SeaGreen";
-
-		// draw a bar based on the current volume
-		canvasContext.fillRect(0, 0, audioMeter.volume * meterW * 1.6 /*5*/, 200/*meterH*/);
-	}
-
-	// set up the next visual callback
-	rafID = window.requestAnimationFrame( onLevelChange );
-	}
-		
-	onLevelChange()
+// Initialize audio meter
+function initAudioMeter(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return null;
+  
+  return new AudioMeter(container);
 }

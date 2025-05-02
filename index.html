@@ -14,6 +14,12 @@
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
   <script type="text/javascript" src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
   <script src="vumeter.js"></script>
+  <script src="wavesurfer.min.js"></script>
+  <script src="plugin/wavesurfer.timeline.min.js"></script>
+  <script src="plugin/wavesurfer.regions.min.js"></script>
+  <script src="plugin/wavesurfer.cursor.min.js"></script>
+  <script src="plugin/wavesurfer.microphone.min.js"></script>
+  <script src="wavesurfer-init.js"></script>
   <script>
     var scriptprocessor = false;
     var eqset1 = 1;
@@ -1281,107 +1287,60 @@
     }
 
     function recordstart(btn) {
-      if (locked1 === true || locked2 === true || listUpdateState === true)
-        return;
-
       if (recordstate == "stop") {
-
-        // micselection();
+        // Update UI
         btn.classList.remove("recordstart-btn");
         btn.classList.add("recordstop-btn");
-        // btn.innerHTML = "Press HERE to Stop Recording";
         var reclbl = document.getElementById("recordlabel");
         reclbl.innerHTML = "Press HERE to Stop Recording<br>";
         reclbl.classList.add("recordlabel");
+        
+        // Start timer
         timerID = setInterval(recording_time, 100, btn);
         recordstate = "recording";
-        // mediaRecorder.start();	  	 
+        
+        // Start recording
         ee3.emit("record");
+        
+        // Mark VT start if playing
         if (playstate === true) {
           vtStart = playbackSeconds1;
           ee1.emit("markvtstart", vtStart);
         }
-        // console.log("record started");
+        
+        // Adjust volume for ducking
         ee1.emit("mastervolumechange", 100 - ducking);
         ee3.emit("mastervolumechange", 100 - ducking);
-		
       } else if (recordstate == "recording") {
-	  
-        btn.style.display = "none";
-		curVoiceTrackLengthSecond = elapsedTime;			
-		
-        if (timerID !== null) {
-          clearInterval(timerID);
-          timerID = null;
-          elapsedTime = 0;
-        }		
-
-        var recform = document.getElementById("recordform");
-        recform.style.display = "inline-flex";
-        recform.style.bottom = "18px";
-        recform.addEventListener("mousedown", function (event) {
-          ee3.emit("seek", event.offsetX);
-        }, false);
-
-        if (vtStart == 10000)
-          vtStart = curTrackLengthSeconds1 - 0.1;
-        if (nextstart == 10000)
-          nextstart = curVoiceTrackLengthSecond - 0.1;
-	      
-
-        curVoiceTrackFile = getVoiceTrackName();
-        listUpdateState = true;
-        ee3.emit("recordstop", curVoiceTrackFile);		
-		
-		///////02/23		
-		if (breakNoteRow > 0){			
-			deleteplaylistitem(breakNoteRow);
-			breakNoteRow = -1;
-			curID -= 1;	
-		}
-		///////////////	
-		
+        // Stop recording
+        clearInterval(timerID);
+        
+        // Update UI
+        btn.classList.remove("recordstop-btn");
+        btn.classList.add("recordstart-btn");
+        var reclbl = document.getElementById("recordlabel");
+        reclbl.innerHTML = "Press HERE to Record Voice Track";
+        reclbl.classList.remove("recordlabel");
+        
+        // Process recording
         ee3.emit("setvtstartandnext", vtStart, nextstart);
         ee2.emit("stop");
-        recordstate = "playing";			
-
+        recordstate = "playing";
+        
+        // Handle playback
         if (playstate == true) {
           ee1.emit("stop");
-
-          var startTime = vtStart - 2; ///08/31/23 reduced from 10
+          
+          var startTime = vtStart - 2; // Reduced from 10
           if (startTime < 0)
             startTime = 0;
           ee1.emit("play", startTime);
         }
-        // else
-        //   play();
-
+        
+        // Reset state
         markNextStartClikced = false;
         ee1.emit("mastervolumechange", 100);
-        ee3.emit("mastervolumechange", 100);		
-
-		
-      } else if (recordstate == "playing") {
-        btn.classList.remove("recordstop-btn");
-        btn.classList.add("recordstart-btn");
-        // btn.innerHTML = "Press HERE to Record Voice Track";		
-				
-        btn.style.display = "";
-        var reclbl = document.getElementById("recordlabel");
-        reclbl.classList.remove("recordlabel");
-        reclbl.innerHTML = "Press HERE to Record Voice Track";
-
-        recordstate = "stop";
-
-        var recform = document.getElementById("recordform");
-        recform.style.display = "none";
-        // mediaRecorder.stop();
-        // ee3.emit("clear");
-
-        //removed WP they dont exist	
-        //ee3.emit("removeTrack", "Recording");
-
-        // console.log("hide voice track");		
+        ee3.emit("mastervolumechange", 100);
       }
     }
 
@@ -2269,3 +2228,6 @@
   </script>
 </body>
 </html>
+
+
+

@@ -135,45 +135,64 @@ let decodeFrame = (buffer, offset) => {
 };
 
 function ResetMp3tag(mp3ArrayBuffer) {
-    var mp3file = writeMp3Tag(mp3ArrayBuffer, curVoiceTrackFile, nextstart, vtStart);
-    extractedFile.remove(curVoiceTrackFullPath);
-    extractedFile.file(curVoiceTrackFullPath, mp3file);
-
-    ee1.emit("markvtstart", vtStart);
-    ee3.emit("setvtstartandnext", vtStart, nextstart);
-    console.log("ddddddddd", vtStart, nextstart);
+  // Create a new tagged MP3 file
+  const mp3file = writeMp3Tag(mp3ArrayBuffer, curVoiceTrackFile, nextstart, vtStart);
+  
+  // Update the file in the ZIP
+  extractedFile.remove(curVoiceTrackFullPath);
+  extractedFile.file(curVoiceTrackFullPath, mp3file);
+  
+  // Update the markers in the UI
+  if (playlist3) {
+    // Remove existing markers
+    const regions = playlist3.regions.getRegions();
+    Object.values(regions).forEach(region => {
+      if (region.data && (region.data.type === 'vtstart' || region.data.type === 'nextstart')) {
+        region.remove();
+      }
+    });
+    
+    // Add VT start marker
+    playlist3.regions.addRegion({
+      start: vtStart,
+      end: vtStart + 0.1,
+      color: 'rgba(255, 0, 0, 0.5)',
+      data: {
+        type: 'vtstart'
+      }
+    });
+    
+    // Add next start marker
+    playlist3.regions.addRegion({
+      start: nextstart,
+      end: nextstart + 0.1,
+      color: 'rgba(0, 0, 255, 0.5)',
+      data: {
+        type: 'nextstart'
+      }
+    });
+  }
 }
 
-function writeMp3Tag(buffer, vtfilename, nextstart, vtstart) {
-    var metadatawriter = new ID3Writer(buffer);
-    if (nextstart == 10000)
-        nextstart = "";
-    if (vtstart == 10000)
-        vtstart = "";
-    metadatawriter
-        // .setFrame('COMM', {
-        // 	description: 'Enter Comments Here',
-        // 	text: '',
-        // 	language: 'eng'
-        // })
-        // .setFrame('TALB', 'www.my12inch.com')
-        // .setFrame('TBPM', 128)
-        .setFrame('TCON', [255])
-        .setFrame('TIT2', vtfilename.replace(".mp3", ""))
-        .setFrame('TOWN', 'nkTag~~~~~~0~0~0~' + nextstart + '~' + vtstart)
-        .setFrame('TPE1', ['VoiceTrack']);
-        // .setFrame('TYER', 2020)
-        // .setFrame('TCON', ['Soundtrack'])
-        // .setFrame('TBPM', 128)
-        // .setFrame('WPAY', 'https://google.com')
-        // .setFrame('TKEY', 'Fbm')
-        // .setFrame('APIC', {
-        // 	  type: 3,
-        // 	  data: coverArrayBuffer,
-        // 	  description: 'Super picture'
-        //  });
-    metadatawriter.addTag();
-    var tagblob = metadatawriter.getBlob();
-    var mp3file = new File([tagblob], /*"VoiceTrack-" + */vtfilename/* + ".mp3"*/, {type:"audio/mp3", lastModified:new Date().getTime()});
-    return mp3file;
+function writeMp3Tag(mp3ArrayBuffer, filename, nextStartTime, vtStartTime) {
+  // Create a new ID3 writer
+  const writer = new ID3Writer(mp3ArrayBuffer);
+  
+  // Format the tag data
+  const tagData = `VoiceTrack~${filename}~${vtStartTime}~0~0~${nextStartTime}~${vtStartTime}~0~0~${nextStartTime}`;
+  
+  // Add the tag
+  writer.setFrame('TOWN', tagData)
+        .setFrame('TIT2', filename)
+        .setFrame('TPE1', ['NextKast VoiceTrack'])
+        .setFrame('TALB', 'NextKast VoiceTrack');
+  
+  // Write the tags
+  writer.addTag();
+  
+  // Get the tagged buffer
+  const taggedArrayBuffer = writer.arrayBuffer;
+  
+  // Create a Blob from the buffer
+  return new Blob([taggedArrayBuffer], { type: 'audio/mp3' });
 }

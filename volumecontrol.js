@@ -170,3 +170,114 @@ function initAllEqSetting() {
 }
 
 initAllEqSetting();
+
+/**
+ * Volume control functionality for WaveSurfer
+ */
+
+// Initialize volume controls
+function initVolumeControls() {
+  // Get volume sliders
+  const track1Volume = document.getElementById('track1-volume');
+  const track2Volume = document.getElementById('track2-volume');
+  const vtVolume = document.getElementById('vt-volume');
+  
+  // Set initial values from localStorage or defaults
+  track1Volume.value = localStorage.getItem('track1Volume') || 80;
+  track2Volume.value = localStorage.getItem('track2Volume') || 80;
+  vtVolume.value = localStorage.getItem('vtVolume') || 80;
+  
+  // Apply initial volumes
+  if (playlist1) {
+    playlist1.setVolume(track1Volume.value / 100);
+  }
+  
+  if (playlist2) {
+    playlist2.setVolume(track2Volume.value / 100);
+  }
+  
+  if (playlist3) {
+    playlist3.setVolume(vtVolume.value / 100);
+  }
+  
+  // Add event listeners
+  track1Volume.addEventListener('input', function() {
+    if (playlist1) {
+      playlist1.setVolume(this.value / 100);
+    }
+    localStorage.setItem('track1Volume', this.value);
+  });
+  
+  track2Volume.addEventListener('input', function() {
+    if (playlist2) {
+      playlist2.setVolume(this.value / 100);
+    }
+    localStorage.setItem('track2Volume', this.value);
+  });
+  
+  vtVolume.addEventListener('input', function() {
+    if (playlist3) {
+      playlist3.setVolume(this.value / 100);
+    }
+    localStorage.setItem('vtVolume', this.value);
+  });
+}
+
+// Function to set volume for a specific player
+function setVolume(player, volume) {
+  if (!player) return;
+  
+  // Ensure volume is between 0 and 100
+  volume = Math.max(0, Math.min(100, volume));
+  
+  // Set volume
+  player.setVolume(volume / 100);
+}
+
+// Function to fade volume
+function fadeVolume(player, startVolume, endVolume, duration, callback) {
+  if (!player) return;
+  
+  // Ensure volumes are between 0 and 100
+  startVolume = Math.max(0, Math.min(100, startVolume));
+  endVolume = Math.max(0, Math.min(100, endVolume));
+  
+  // Convert to 0-1 range for WaveSurfer
+  const startVol = startVolume / 100;
+  const endVol = endVolume / 100;
+  
+  // Set initial volume
+  player.setVolume(startVol);
+  
+  // Calculate step size
+  const steps = 20; // Number of steps for the fade
+  const stepTime = duration / steps;
+  const volumeStep = (endVol - startVol) / steps;
+  
+  // Start fading
+  let currentStep = 0;
+  const fadeInterval = setInterval(() => {
+    currentStep++;
+    
+    if (currentStep >= steps) {
+      // Final step
+      player.setVolume(endVol);
+      clearInterval(fadeInterval);
+      
+      if (typeof callback === 'function') {
+        callback();
+      }
+    } else {
+      // Intermediate step
+      const newVolume = startVol + (volumeStep * currentStep);
+      player.setVolume(newVolume);
+    }
+  }, stepTime);
+  
+  // Return the interval ID for potential cancellation
+  return fadeInterval;
+}
+
+// Initialize volume controls when the page loads
+document.addEventListener('DOMContentLoaded', initVolumeControls);
+

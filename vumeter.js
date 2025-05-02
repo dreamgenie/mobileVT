@@ -1,84 +1,86 @@
-function vumeter() {	
-	// AUDIO WORKLET
-	if (!scriptprocessor) {
-		vumeterWorkletProcessor.port.onmessage = drawGoLiveVUmeter		
-	} else {
-		// SCRIPT PROCESSOR
-		navigator.getUserMedia = navigator.getUserMedia ||  navigator.webkitGetUserMedia ||  navigator.mozGetUserMedia;
-		// CONSTRAINTS INITIALIZED AS WINDOW VARIABLE IN INDEX.HTML SO THEY APPLY TO ALL AUDIO CAPTURE
-		// var constraints = {
-		//   audio: {		 						 
-		//     sampleRate: {
-		// 	  min: 44100, ideal: 44100 , max: 48000 
-		// 	},
-		//   }
-		// };
-		/*constraints.audio.sampleRate = {
-		min: 44100, ideal: 44100, max: 48000 
-		};
-		if (navigator.getUserMedia) { navigator.getUserMedia(constraints, function(stream) {
-		// audioContext = new AudioContext();*/
-		audioContext = globalAudioContext;
-		analyser = audioContext.createAnalyser();
-		// microphone = audioContext.createMediaStreamSource(stream);
-		microphone = mixedAudioSource;
-		javascriptNode = audioContext.createScriptProcessor(256, 1, 1);
-
-		analyser.smoothingTimeConstant = 0.9;
-		analyser.fftSize = 256;
-		analyser.minDecibels = -48;
-		analyser.maxDecibels = 3;
-
-		microphone.connect(analyser);
-		analyser.connect(javascriptNode);
-		javascriptNode.connect(audioContext.destination);
-			
-		vumetercanvas = document.getElementById("vumetercanvas");
-		vumetercanvas.style.display = "block";
-		ctx = vumetercanvas.getContext("2d");
-		width = ctx.canvas.width;
-		height = ctx.canvas.height;  
-		
-		javascriptNode.onaudioprocess = function() {
-			var array = new Uint8Array(analyser.frequencyBinCount);
-			analyser.getByteFrequencyData(array);
-			
-			//var values = 0;
-			//var length = array.length;
-			//for (var i = 0; i < length; i++) {
-			//  values += (array[i]);
-			//}
-			//var average = values / length;	
-			
-			//WP		
-			const sum = array.reduce((sum, value) => sum + value, 0);
-			const average = (sum / array.length);	
-
-			var gradient = ctx.createLinearGradient(0,0, width,0);	
-			gradient.addColorStop(0, 'green');
-			gradient.addColorStop(.9, '#FF8C00');
-			gradient.addColorStop(1, 'red');		  
-				
-			//ctx.clearRect(0, 0, width, height);
-			ctx.fillStyle = '#000000';
-			ctx.fillRect(0, 0, width, height);
-		
-			if(average < 4){
-				//ctx.fillStyle = '#BadA55';
-				ctx.fillStyle = gradient
-			}
-			else{
-				ctx.fillStyle = 'red';		  
-			}
-			ctx.fillRect(0, 0, average*100 , height)
-		}
-	}
-    /*},
-    function(err) {
-      console.log("The following error occured: " + err.name)
-    });
-} else {
-  console.log("getUserMedia not supported");
-}*/
-
+// Replace existing VU meter implementation
+function setupVUMeter(container) {
+  // Create a canvas for the VU meter if it doesn't exist
+  if (!container.getContext) {
+    console.error("Container must be a canvas element");
+    return null;
+  }
+  
+  // Create WaveSurfer instance with microphone plugin
+  const micWaveSurfer = WaveSurfer.create({
+    container: container.parentElement,
+    waveColor: 'green',
+    interact: false,
+    cursorWidth: 0,
+    plugins: [
+      WaveSurfer.microphone.create()
+    ]
+  });
+  
+  // Hide the waveform display
+  const waveformElement = container.parentElement.querySelector('wave');
+  if (waveformElement) {
+    waveformElement.style.display = 'none';
+  }
+  
+  // Start microphone
+  micWaveSurfer.microphone.start();
+  
+  // Set up analyzer for volume levels
+  micWaveSurfer.microphone.on('deviceReady', function() {
+    const analyser = micWaveSurfer.microphone.analyser;
+    analyser.fftSize = 256;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    // Draw VU meter
+    function drawVUMeter() {
+      if (recordstate !== "recording") {
+        requestAnimationFrame(drawVUMeter);
+        return;
+      }
+      
+      requestAnimationFrame(drawVUMeter);
+      
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for(let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / bufferLength / 255;
+      
+      // Update VU meter display
+      const ctx = container.getContext('2d');
+      ctx.clearRect(0, 0, container.width, container.height);
+      
+      const gradient = ctx.createLinearGradient(0, 0, container.width, 0);
+      gradient.addColorStop(0, 'green');
+      gradient.addColorStop(0.9, '#FF8C00');
+      gradient.addColorStop(1, 'red');
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, average * container.width, container.height);
+    }
+    
+    drawVUMeter();
+  });
+  
+  // Handle errors
+  micWaveSurfer.microphone.on('deviceError', function(error) {
+    console.error('Device error:', error);
+  });
+  
+  return micWaveSurfer;
 }
+
+// Initialize VU meter when needed
+function initializeVUMeter() {
+  const meterCanvas = document.getElementById('meter');
+  if (meterCanvas) {
+    const vuMeter = setupVUMeter(meterCanvas);
+    return vuMeter;
+  }
+  return null;
+}
+
+

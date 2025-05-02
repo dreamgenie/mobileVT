@@ -52,25 +52,68 @@ function logError(err) {
   console.error(err);
 }
 
-playlist1 = WaveformPlaylist.init({
-  samplesPerPixel: 5000,
-  waveHeight: 40,//document.getElementById("curform").clientHeight + 2,
-  container: document.getElementById("curform"),
-  state: 'cursor',
-  colors: {
-    waveOutlineColor: 'black',
-    timeColor: 'red',
-    fadeColor: 'black'
-  },
-  timescale: true,
-  controls: {
-    show: false, //whether or not to include the track controls
-    width: 200 //width of controls in pixels
-  },
-  seekStyle : 'line',
-  zoomLevels: [500, 1000, 3000, 5000],
-  waveWidth: document.getElementById("curform").clientWidth  
+playlist1 = createWaveSurfer("curform", {
+  height: 40,
+  waveColor: 'black',
+  progressColor: '#4353FF',
+  cursorColor: 'red',
+  minPxPerSec: 100,
+  scrollParent: true,
+  normalize: true
 });
+
+playlist1.on('ready', function() {
+  const duration = playlist1.getDuration();
+  locked1 = false;
+  
+  // Add click handler for seeking
+  const canvas = document.getElementById("curform");
+  canvas.addEventListener("mousedown", function(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const seekPosition = x / canvas.clientWidth * duration;
+    playlist1.seekTo(seekPosition / duration);
+  }, false);
+  
+  curTrackLengthSeconds1 = duration;
+  const canvasdiv = document.getElementById("form1");
+  canvasdiv.innerText = curTrackName1 + "  ---  " + getHMS(curTrackLengthSeconds1);
+  canvasdiv.style.fontSize = "2.2vh";
+});
+
+playlist1.on('finish', function() {
+  if (recordstate === "playing" && vtStart === 10000) {
+    playlist3.play();
+  }
+});
+
+// Add a method to maintain API compatibility
+playlist1.getEventEmitter = function() {
+  return {
+    on: function(event, callback) {
+      playlist1.on(event, callback);
+    },
+    emit: function(event, ...args) {
+      if (event === 'seek') {
+        const position = args[0] / document.getElementById("curform").clientWidth;
+        playlist1.seekTo(position);
+      } else if (event === 'play') {
+        playlist1.play();
+      } else if (event === 'stop') {
+        playlist1.stop();
+      } else if (event === 'mastervolumechange') {
+        playlist1.setVolume(args[0] / 100);
+      } else if (event === 'newtrack') {
+        const [blob, name, width] = args;
+        playlist1.loadBlob(blob);
+        curTrackName1 = name;
+      }
+    }
+  };
+};
+
+// Initialize the event emitter reference to maintain compatibility
+var ee1 = playlist1.getEventEmitter();
 
 playlist2 = WaveformPlaylist.init({
   samplesPerPixel: 5000,
@@ -92,49 +135,103 @@ playlist2 = WaveformPlaylist.init({
   waveWidth: document.getElementById("nextform").clientWidth
 });
 
-playlist3 = WaveformPlaylist.init({
-  samplesPerPixel: 5000,
-  waveHeight: 34,//document.getElementById("recordform").clientHeight,
-  container: document.getElementById("recordform"),
-  state: 'cursor',
-  colors: {
-    waveOutlineColor: 'black',
-    timeColor: 'red',
-    fadeColor: 'black'
-  },
-  timescale: true,
-  controls: {
-    show: false, //whether or not to include the track controls
-    width: 200 //width of controls in pixels
-  },
-  seekStyle : 'line',
-  zoomLevels: [500, 1000, 3000, 5000],
-  waveWidth: 288//document.getElementById("recordform").clientWidth
+playlist3 = createWaveSurfer("vtform", {
+  height: 40,
+  waveColor: 'black',
+  progressColor: '#4353FF',
+  cursorColor: 'red',
+  minPxPerSec: 100,
+  scrollParent: true,
+  normalize: true
 });
 
-var ee1 = playlist1.getEventEmitter();
-var ee2 = playlist2.getEventEmitter();
-var ee3 = playlist3.getEventEmitter();
-
-ee1.on("loaded", function(duration) {
-  locked1 = false;
-  var canvas = document.getElementById("curform").getElementsByTagName("canvas")[0];
-  canvas.addEventListener("mousedown", function( event ) {
-    ee1.emit("seek", event.offsetX);
+playlist3.on('ready', function() {
+  const duration = playlist3.getDuration();
+  
+  // Add click handler for seeking
+  const canvas = document.getElementById("vtform");
+  canvas.addEventListener("mousedown", function(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const seekPosition = x / canvas.clientWidth * duration;
+    playlist3.seekTo(seekPosition / duration);
   }, false);
-
-  curTrackLengthSeconds1 = duration;
-  var canvasdiv = document.getElementById("form1");
-  canvasdiv.innerText = curTrackName1 + "  ---  " + getHMS(curTrackLengthSeconds1);
+  
+  curVoiceTrackLengthSecond = duration;
+  const canvasdiv = document.getElementById("form3");
+  canvasdiv.innerText = getVoiceTrackName() + "  ---  " + getHMS(curVoiceTrackLengthSecond);
   canvasdiv.style.fontSize = "2.2vh";
-  //canvasdiv.innerText += "\n";
-  //canvasdiv.innerText += getHMS(curTrackLengthSeconds1);
 });
 
-ee1.on("finished", function() {
-  if (recordstate === "playing" && vtStart === 10000)
-    ee3.emit("play");
+playlist3.on('audioprocess', function(time) {
+  voicetrackPlaySecond = time;
+  
+  // Emit timeupdate event for compatibility
+  if (ee3) {
+    ee3.emit('timeupdate', time);
+  }
+  
+  // Check if we need to start the next track
+  if (voicetrackPlaySecond > nextstart && recordstate === "playing" && rightTrackState === false) {
+    rightTrackState = true;
+    ee2.emit("play");
+    
+    // Fade out the first track
+    var curvolume = localStorage.miclevel || 80;
+    var fadeAudio = setInterval(function () {
+      if (curvolume > 0) {
+        curvolume -= 20;
+        ee1.emit("mastervolumechange", curvolume);
+      } else {
+        ee1.emit("stop");
+        ee1.emit("mastervolumechange", 100);
+        clearInterval(fadeAudio);
+      }
+    }, fadetime * 1000 / 5);
+  }
 });
+
+playlist3.on('finish', function() {
+  recordstate = "stopped";
+  rightTrackState = false;
+});
+
+// Add compatibility layer
+playlist3.getEventEmitter = function() {
+  return {
+    on: function(event, callback) {
+      if (event === 'timeupdate') {
+        playlist3.on('audioprocess', callback);
+      } else {
+        playlist3.on(event, callback);
+      }
+    },
+    emit: function(event, ...args) {
+      if (event === 'seek') {
+        const position = args[0] / document.getElementById("vtform").clientWidth;
+        playlist3.seekTo(position);
+      } else if (event === 'play') {
+        playlist3.play();
+      } else if (event === 'stop') {
+        playlist3.stop();
+      } else if (event === 'mastervolumechange') {
+        playlist3.setVolume(args[0] / 100);
+      } else if (event === 'newtrack') {
+        const [blob, name, width] = args;
+        playlist3.loadBlob(blob);
+      } else if (event === 'voicetrackblob') {
+        // Handle voicetrack blob event
+        const mp3file = args[0];
+        curVoiceTrackFullPath = "Music/Tracks/" + mp3file.name;
+        extractedFile.file(curVoiceTrackFullPath, mp3file);
+        extractedFile.remove(plsFileFullName);
+        extractedFile.file(plsFileFullName, ComposePLS(mp3file.name));
+      }
+    }
+  };
+};
+
+var ee3 = playlist3.getEventEmitter();
 
 ee1.on("timeupdate", function(sec) {
   playbackSeconds1 = sec;
@@ -293,3 +390,205 @@ localStorageWorker_func = function() {
 localStorageWorker = localStorageWorker_func.toString().trim().match(
 	/^function\s*\w*\s*\([\w\s,]*\)\s*{([\w\W]*?)}$/
 )[1];
+
+// Replace the record function
+function record() {
+  if (recordstate === "stopped") {
+    // Initialize recording
+    if (!window.voiceTrackRecorder) {
+      alert("Microphone not initialized. Please check microphone access.");
+      return;
+    }
+    
+    // Reset state
+    recordstate = "recording";
+    rightTrackState = false;
+    
+    // Start recording
+    window.voiceTrackRecorder.start();
+    
+    // Start playback of first track
+    playlist1.play();
+    
+    // Update UI
+    document.getElementById("recordbtn").innerHTML = "Stop";
+    document.getElementById("recordbtn").style.backgroundColor = "red";
+  } else {
+    // Stop recording
+    recordstate = "stopped";
+    rightTrackState = false;
+    
+    // Stop recording
+    window.voiceTrackRecorder.stop();
+    
+    // Stop playback
+    playlist1.stop();
+    playlist2.stop();
+    
+    // Update UI
+    document.getElementById("recordbtn").innerHTML = "Record";
+    document.getElementById("recordbtn").style.backgroundColor = "#4CAF50";
+  }
+}
+
+// Replace the play function
+function play() {
+  if (recordstate === "stopped") {
+    // Start playback
+    recordstate = "playing";
+    rightTrackState = false;
+    
+    // Play voice track
+    playlist3.play();
+    
+    // Update UI
+    document.getElementById("playbtn").innerHTML = "Stop";
+    document.getElementById("playbtn").style.backgroundColor = "red";
+  } else {
+    // Stop playback
+    recordstate = "stopped";
+    rightTrackState = false;
+    
+    // Stop all tracks
+    playlist1.stop();
+    playlist2.stop();
+    playlist3.stop();
+    
+    // Update UI
+    document.getElementById("playbtn").innerHTML = "Play";
+    document.getElementById("playbtn").style.backgroundColor = "#4CAF50";
+  }
+}
+
+// Function to load a track into WaveSurfer
+function loadTrackIntoWaveSurfer(wavesurfer, file, trackName) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('No file provided'));
+      return;
+    }
+    
+    // If file is a string (URL), load it directly
+    if (typeof file === 'string') {
+      wavesurfer.load(file);
+      wavesurfer.on('ready', () => {
+        resolve(wavesurfer.getDuration());
+      });
+      wavesurfer.on('error', err => {
+        reject(err);
+      });
+      return;
+    }
+    
+    // If file is a Blob or File object, load it
+    if (file instanceof Blob) {
+      wavesurfer.loadBlob(file);
+      wavesurfer.on('ready', () => {
+        resolve(wavesurfer.getDuration());
+      });
+      wavesurfer.on('error', err => {
+        reject(err);
+      });
+      return;
+    }
+    
+    // If file is an ArrayBuffer, decode it first
+    if (file instanceof ArrayBuffer) {
+      const audioContext = new AudioContext();
+      audioContext.decodeAudioData(file)
+        .then(buffer => {
+          wavesurfer.loadDecodedBuffer(buffer);
+          resolve(buffer.duration);
+        })
+        .catch(err => {
+          reject(err);
+        });
+      return;
+    }
+    
+    reject(new Error('Unsupported file type'));
+  });
+}
+
+// Function to mark the next start point
+function markNextStart() {
+  if (recordstate === "playing") {
+    nextstart = voicetrackPlaySecond;
+    
+    // Update the MP3 tag with the new next start point
+    extractedFile.forEach(function(relPath, file) {
+      if (relPath.endsWith(curVoiceTrackFile)) {
+        file.async('blob').then(function(content) {
+          content.arrayBuffer().then(buffer => {
+            ResetMp3tag(buffer);
+            updateNextStart();
+          });
+        });
+      }
+    });
+    
+    // Add a visual marker in WaveSurfer
+    const regions = playlist3.regions.getRegions();
+    
+    // Remove existing next start markers
+    Object.values(regions).forEach(region => {
+      if (region.data && region.data.type === 'nextstart') {
+        region.remove();
+      }
+    });
+    
+    // Add new marker
+    playlist3.regions.addRegion({
+      start: nextstart,
+      end: nextstart + 0.1,
+      color: 'rgba(0, 0, 255, 0.5)',
+      data: {
+        type: 'nextstart'
+      }
+    });
+  }
+}
+
+// Function to mark the intro point
+function markToIntro() {
+  if (recordstate === "playing") {
+    nextstart = curVoiceTrackLengthSecond - intromark;
+    
+    if (nextstart < 0) {
+      nextstart = 0;
+    }
+    
+    extractedFile.forEach(function(relPath, file) {
+      if (relPath.endsWith(curVoiceTrackFile)) {
+        file.async('blob').then(function(content) {
+          content.arrayBuffer().then(buffer => {
+            ResetMp3tag(buffer);
+            updateNextStart();
+          });
+        });
+      }
+    });
+    
+    // Add a visual marker in WaveSurfer
+    const regions = playlist3.regions.getRegions();
+    
+    // Remove existing intro markers
+    Object.values(regions).forEach(region => {
+      if (region.data && region.data.type === 'intro') {
+        region.remove();
+      }
+    });
+    
+    // Add new marker
+    playlist3.regions.addRegion({
+      start: nextstart,
+      end: nextstart + 0.1,
+      color: 'rgba(0, 255, 0, 0.5)',
+      data: {
+        type: 'intro'
+      }
+    });
+  }
+}
+
+
